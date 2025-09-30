@@ -64,11 +64,11 @@ jobs:
 
       - name: Publish build-info to Artifactory
         run: |
-          jf build-publish ${{ env.BUILD_NAME }} ${{ env.BUILD_NUMBER }}
+          jf rt build-publish ${{ env.BUILD_NAME }} ${{ env.BUILD_NUMBER }}
 
       - name: Trigger Xray scan
         run: |
-          jf build-scan ${{ env.BUILD_NAME }} ${{ env.BUILD_NUMBER }} --vuln --json > xray_scan_result.json || true
+          jf rt build-scan ${{ env.BUILD_NAME }} ${{ env.BUILD_NUMBER }} --vuln --json > xray_scan_result.json || true
 
       - name: Show build-scan result
         run: |
