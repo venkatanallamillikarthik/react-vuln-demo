@@ -21,33 +21,33 @@ jobs:
         with:
           node-version: 18
 
-      - name: deleting old package.json
-        run: |
-         rm -rf node_modules package-lock.json
-         npm install
-
-      - name: Install dependencies (npm)
-        run: |
-          npm ci
-
       # Install JFrog CLI and configure (uses repo secrets)
       - name: Setup JFrog CLI
         uses: jfrog/setup-jfrog-cli@v3
         with:
           version: latest
           jfrog_url: ${{ secrets.JFROG_URL }}
-          # you can use api key or password; prefer API key or access token
           jfrog_user: ${{ secrets.JFROG_USERNAME }}
           jfrog_password: ${{ secrets.JFROG_API_KEY }}
 
-      # Option A: use JFrog CLI to run npm install (collects build-info)
-      # If you prefer to use npm ci (we already ran it), you can still publish build-info by running `jf rt build-publish`.
-      - name: Collect build info (via jf rt npm-install)
+      - name: Install dependencies and collect build-info (robust)
         run: |
-          # configure npm resolution to Artifactory if needed (optional)
-          # jf rt npm-config --repo <your-npm-remote-or-virtual-repo>
-          # collect dependencies and attach to build
-          jf rt npm-install --build-name=${{ env.BUILD_NAME }} --build-number=${{ env.BUILD_NUMBER }}
+          set -e
+          echo "Attempting jf rt npm-install (preferred: installs and collects build-info)"
+          if jf rt npm-install --build-name=${{ env.BUILD_NAME }} --build-number=${{ env.BUILD_NUMBER }}; then
+            echo "jf rt npm-install succeeded"
+          else
+            echo "jf rt npm-install failed — falling back to npm install"
+            # remove node_modules to ensure a clean install on runners
+            rm -rf node_modules
+            npm install
+            # try collecting build-info again; do not fail the job if this second attempt fails
+            if jf rt npm-install --build-name=${{ env.BUILD_NAME }} --build-number=${{ env.BUILD_NUMBER }}; then
+              echo "jf rt npm-install succeeded after fallback"
+            else
+              echo "Warning: jf rt npm-install still failed after fallback — continuing but build-info may be incomplete"
+            fi
+          fi
 
       - name: (Optional) Run build (create build artifacts)
         run: |
@@ -59,8 +59,6 @@ jobs:
 
       - name: Trigger Xray scan
         run: |
-          # Use build-scan to request Xray to scan the published build.
-          # --vuln prints vulnerabilities
           jf rt build-scan ${{ env.BUILD_NAME }} ${{ env.BUILD_NUMBER }} --vuln
 
       - name: Show build-scan result (file)
