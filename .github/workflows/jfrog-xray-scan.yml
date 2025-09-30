@@ -25,9 +25,9 @@ jobs:
         uses: jfrog/setup-jfrog-cli@v3
         with:
           version: latest
-          jfrog_url: ${{ secrets.JFROG_URL }}
-          jfrog_user: ${{ secrets.JFROG_USERNAME }}
-          jfrog_password: ${{ secrets.JFROG_API_KEY }}
+          jfrog_url: 'https://trialdka400.jfrog.io/'
+          jfrog_user: '19b91a04f0@srkrec.edu.in'
+          jfrog_password: 'Ka$Osi#67890'
 
       - name: Configure npm project for Artifactory
         # Requires you set ARTIFACTORY_NPM_REPO in repo secrets to an Artifactory npm repo name
