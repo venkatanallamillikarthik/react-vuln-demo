@@ -21,8 +21,7 @@ jobs:
         with:
           node-version: 18
 
-      # Install JFrog CLI and configure (uses repo secrets)
-      - name: Setup JFrog CLI
+      - name: Setup JFrog CLI (logged-in)
         uses: jfrog/setup-jfrog-cli@v3
         with:
           version: latest
@@ -30,38 +29,57 @@ jobs:
           jfrog_user: ${{ secrets.JFROG_USERNAME }}
           jfrog_password: ${{ secrets.JFROG_API_KEY }}
 
-      - name: Install dependencies and collect build-info (robust)
+      - name: Configure npm project for Artifactory
+        # Requires you set ARTIFACTORY_NPM_REPO in repo secrets to an Artifactory npm repo name
         run: |
           set -e
-          echo "Attempting jf rt npm-install (preferred: installs and collects build-info)"
-          if jf rt npm-install --build-name=${{ env.BUILD_NAME }} --build-number=${{ env.BUILD_NUMBER }}; then
-            echo "jf rt npm-install succeeded"
+          if [ -n "${{ secrets.ARTIFACTORY_NPM_REPO }}" ]; then
+            echo "Configuring project for Artifactory npm repo: ${{ secrets.ARTIFACTORY_NPM_REPO }}"
+            jf npm-config --repo=${{ secrets.ARTIFACTORY_NPM_REPO }} || jf npm-config ${ { secrets.ARTIFACTORY_NPM_REPO } } || true
           else
-            echo "jf rt npm-install failed — falling back to npm install"
-            # remove node_modules to ensure a clean install on runners
+            echo "ARTIFACTORY_NPM_REPO not set — skipping jf npm-config. Build-info collection may fail."
+          fi
+
+      - name: Install dependencies and collect build-info (preferred)
+        run: |
+          set -e
+          echo "Trying jf npm install --build-name..."
+          if jf npm install --build-name=${{ env.BUILD_NAME }} --build-number=${{ env.BUILD_NUMBER }}; then
+            echo "jf npm install succeeded and build-info collected"
+          else
+            echo "jf npm install failed — falling back to npm install"
             rm -rf node_modules
             npm install
-            # try collecting build-info again; do not fail the job if this second attempt fails
-            if jf rt npm-install --build-name=${{ env.BUILD_NAME }} --build-number=${{ env.BUILD_NUMBER }}; then
-              echo "jf rt npm-install succeeded after fallback"
+            # Try to attach build-info after fallback (best-effort)
+            if jf npm install --build-name=${{ env.BUILD_NAME }} --build-number=${{ env.BUILD_NUMBER }}; then
+              echo "jf npm install succeeded after fallback"
             else
-              echo "Warning: jf rt npm-install still failed after fallback — continuing but build-info may be incomplete"
+              echo "Warning: jf npm install still failed — build-info may be incomplete"
             fi
           fi
 
-      - name: (Optional) Run build (create build artifacts)
+      - name: Run build (create build artifacts)
         run: |
           npm run build
 
       - name: Publish build-info to Artifactory
         run: |
-          jf rt bp ${{ env.BUILD_NAME }} ${{ env.BUILD_NUMBER }}
+          jf build-publish ${{ env.BUILD_NAME }} ${{ env.BUILD_NUMBER }}
 
       - name: Trigger Xray scan
         run: |
-          jf rt build-scan ${{ env.BUILD_NAME }} ${{ env.BUILD_NUMBER }} --vuln
+          jf build-scan ${{ env.BUILD_NAME }} ${{ env.BUILD_NUMBER }} --vuln --json > xray_scan_result.json || true
 
-      - name: Show build-scan result (file)
+      - name: Show build-scan result
         run: |
-          jf rt build-scan ${{ env.BUILD_NAME }} ${{ env.BUILD_NUMBER }} --vuln --json > xray_scan_result.json
-          cat xray_scan_result.json
+          if [ -f xray_scan_result.json ]; then
+            cat xray_scan_result.json
+          else
+            echo "No xray_scan_result.json found"
+          fi
+
+      - name: Upload Xray result artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xray-scan-result
+          path: xray_scan_result.json
